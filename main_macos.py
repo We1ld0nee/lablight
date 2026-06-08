@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QLabel,
     QStackedWidget, QFrame, QLineEdit, QTextEdit, QTableWidget, QTableWidgetItem,
     QSizePolicy, QSpacerItem, QFileDialog, QMessageBox, QHeaderView, QDialog, QDateEdit, QTimeEdit,
-    QComboBox, QDoubleSpinBox, QGraphicsDropShadowEffect
+    QComboBox, QDoubleSpinBox, QGraphicsDropShadowEffect, QCheckBox, QSpinBox
 )
 from PyQt5.QtCore import Qt, QSize, QDate, QTime 
 from PyQt5.QtGui import QFont, QPixmap, QIcon
@@ -157,7 +157,7 @@ class AboutDialog(QDialog):
         layout.setSpacing(18)
 
         icon_label = QLabel()
-        icon_pixmap = QPixmap(resource_path("images/solarimetro_icon.png"))
+        icon_pixmap = QPixmap(resource_path("images/solarimetro_icon.icns"))
 
         if not icon_pixmap.isNull():
             icon_label.setPixmap(
@@ -526,6 +526,19 @@ class ImportSettingsDialog(QDialog):
         self.interval_input.addItems(["1", "2", "5", "10", "15", "30", "60"])
         self.interval_input.setCurrentText("5")
 
+        self.interpolate_checkbox = QCheckBox("Usar interpolação")
+        self.interpolate_checkbox.setChecked(False)
+
+        self.interpolation_range_input = QSpinBox()
+        self.interpolation_range_input.setRange(1, 60)
+        self.interpolation_range_input.setValue(1)
+        self.interpolation_range_input.setSuffix(" minuto(s)")
+        self.interpolation_range_input.setVisible(False)
+
+        self.interpolate_checkbox.stateChanged.connect(
+            lambda state: self.interpolation_range_input.setVisible(state == Qt.Checked)
+        )
+
         self.start_date_input = QDateEdit()
         self.start_date_input.setCalendarPopup(True)
         self.start_date_input.setDate(QDate.currentDate())
@@ -539,6 +552,10 @@ class ImportSettingsDialog(QDialog):
 
         layout.addWidget(QLabel("Intervalo de tempo em minutos:"))
         layout.addWidget(self.interval_input)
+
+        layout.addWidget(self.interpolate_checkbox)
+        layout.addWidget(QLabel("Rango de interpolação:"))
+        layout.addWidget(self.interpolation_range_input)
 
         layout.addWidget(QLabel("Data inicial:"))
         layout.addWidget(self.start_date_input)
@@ -561,6 +578,8 @@ class ImportSettingsDialog(QDialog):
         return {
             "latitude": self.latitude_input.value(),
             "interval_minutes": int(self.interval_input.currentText()),
+            "use_interpolation": self.interpolate_checkbox.isChecked(),
+            "interpolation_range": self.interpolation_range_input.value(),
             "start_date": self.start_date_input.date().toPyDate(),
             "end_date": self.end_date_input.date().toPyDate()
         }
@@ -902,70 +921,6 @@ class MainAppWindow(QWidget):
 
         return container
 
-
-
-
-    def build_search_page(self, title_text):
-        """
-        Builds Daily / Monthly / Annual pages:
-        - Row 1: Search bar + button
-        - Row 2: Placeholder content area (e.g., chart area)
-        """
-        container = QFrame()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(10,10,10,10)
-        layout.setSpacing(12)
-
-        # Row 1: search bar
-        row_top = QHBoxLayout()
-        row_top.setContentsMargins(0, 0, 0, 12)
-        search_input = QLineEdit()
-        search_input.setFixedWidth(450)
-        search_input.setPlaceholderText(" Insira a data ...")
-        search_input.setMinimumHeight(50)
-        search_input.setFont(QFont("Segoe UI", 16))
-        search_input.setStyleSheet("""
-            QLineEdit {
-                color: #a3a3a3;
-                background: white;
-                border: 2px solid #a3a3a3;
-                border-radius: 8px;
-                padding: 6px 12px;
-            }
-            QLineEdit:hover { background: #f2f2f2; }
-        """)
-
-        btn_search = QPushButton("Pesquisar")
-        btn_search.setMinimumHeight(50)
-        btn_search.setFont(QFont("Segoe UI", 16))
-        btn_search.setStyleSheet("""
-            QPushButton {
-                color: #a3a3a3;
-                font-weight: 600;
-                border: 2px solid #a3a3a3;
-                border-radius: 8px;
-                background: #ffffff;
-                padding: 6px 12px;
-            }
-            QPushButton:hover { background: #f2f2f2; }
-        """)
-        row_top.addStretch()
-        row_top.addWidget(search_input)
-        row_top.addSpacing(8)
-        row_top.addWidget(btn_search)
-        # row_top.addStretch()
-
-        # Row 2: placeholder content
-        placeholder = QTextEdit()
-        placeholder.setReadOnly(True)
-        placeholder.setText(f"O conteudo dos {title_text} vai aparecer aquí")
-        placeholder.setMinimumHeight(300)
-        placeholder.setFont(QFont("sans-serif", 18))
-
-        layout.addLayout(row_top)
-        layout.addWidget(placeholder)
-
-        return container
     
     def load_database(self):
         if not self.db_path or not os.path.exists(self.db_path):
@@ -1174,6 +1129,8 @@ class MainAppWindow(QWidget):
 
         latitude = settings["latitude"]
         interval_minutes = settings["interval_minutes"]
+        use_interpolation = settings["use_interpolation"]
+        interpolation_range = settings["interpolation_range"]
         start_date = settings["start_date"]
         end_date = settings["end_date"]
 
@@ -1320,6 +1277,43 @@ class MainAppWindow(QWidget):
                 real_value_rows = 0
                 null_value_rows = 0
 
+                def get_interpolated_value(target_dt):
+                    range_seconds = interpolation_range * 60
+
+                    previous_match = None
+                    next_match = None
+
+                    for key, values in excel_data.items():
+                        excel_dt = datetime.strptime(key, "%Y-%m-%d %H:%M:%S")
+                        diff_seconds = (excel_dt - target_dt).total_seconds()
+
+                        if diff_seconds < 0 and abs(diff_seconds) <= range_seconds:
+                            if previous_match is None or excel_dt > previous_match[0]:
+                                previous_match = (excel_dt, values)
+
+                        elif diff_seconds > 0 and diff_seconds <= range_seconds:
+                            if next_match is None or excel_dt < next_match[0]:
+                                next_match = (excel_dt, values)
+
+                    if previous_match is None or next_match is None:
+                        return None, None
+
+                    previous_dt, previous_values = previous_match
+                    next_dt, next_values = next_match
+
+                    total_seconds = (next_dt - previous_dt).total_seconds()
+                    target_seconds = (target_dt - previous_dt).total_seconds()
+
+                    if total_seconds == 0:
+                        return None, None
+
+                    ratio = target_seconds / total_seconds
+
+                    pira1_value = previous_values[0] + ratio * (next_values[0] - previous_values[0])
+                    pira2_value = previous_values[1] + ratio * (next_values[1] - previous_values[1])
+
+                    return pira1_value, pira2_value
+
                 for dt in expected_times:
                     date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1352,6 +1346,16 @@ class MainAppWindow(QWidget):
                     if date_str in excel_data:
                         pira1_value, pira2_value = excel_data[date_str]
                         real_value_rows += 1
+
+                    elif use_interpolation:
+                        pira1_value, pira2_value = get_interpolated_value(dt)
+
+                        if pira1_value is not None and pira2_value is not None:
+                            real_value_rows += 1
+                        else:
+                            pira1_value, pira2_value = None, None
+                            null_value_rows += 1
+
                     else:
                         pira1_value, pira2_value = None, None
                         null_value_rows += 1
