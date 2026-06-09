@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QLabel,
     QStackedWidget, QFrame, QLineEdit, QTextEdit, QTableWidget, QTableWidgetItem,
     QSizePolicy, QSpacerItem, QFileDialog, QMessageBox, QHeaderView, QDialog, QDateEdit, QTimeEdit,
-    QComboBox, QDoubleSpinBox, QGraphicsDropShadowEffect, QCheckBox, QSpinBox
+    QComboBox, QDoubleSpinBox, QGraphicsDropShadowEffect, QCheckBox, QSpinBox, QProxyStyle
 )
 from PyQt5.QtCore import Qt, QSize, QDate, QTime 
 from PyQt5.QtGui import QFont, QPixmap, QIcon
@@ -513,7 +513,7 @@ class ImportSettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Configurações da Importação")
         self.setModal(True)
-        self.setFixedSize(420, 280)
+        self.setFixedSize(420, 320)
 
         layout = QVBoxLayout(self)
 
@@ -532,11 +532,16 @@ class ImportSettingsDialog(QDialog):
         self.interpolation_range_input = QSpinBox()
         self.interpolation_range_input.setRange(1, 60)
         self.interpolation_range_input.setValue(1)
-        self.interpolation_range_input.setSuffix(" minuto(s)")
-        self.interpolation_range_input.setVisible(False)
+        self.interpolation_range_input.setEnabled(False)
+
+        self.interpolation_range_label = QLabel("Rango de interpolação em minutos:")
+        self.interpolation_range_label.setEnabled(False)
 
         self.interpolate_checkbox.stateChanged.connect(
-            lambda state: self.interpolation_range_input.setVisible(state == Qt.Checked)
+            lambda state: (
+                self.interpolation_range_input.setEnabled(state == Qt.Checked),
+                self.interpolation_range_label.setEnabled(state == Qt.Checked)
+            )
         )
 
         self.start_date_input = QDateEdit()
@@ -554,7 +559,7 @@ class ImportSettingsDialog(QDialog):
         layout.addWidget(self.interval_input)
 
         layout.addWidget(self.interpolate_checkbox)
-        layout.addWidget(QLabel("Rango de interpolação:"))
+        layout.addWidget(self.interpolation_range_label)
         layout.addWidget(self.interpolation_range_input)
 
         layout.addWidget(QLabel("Data inicial:"))
@@ -590,7 +595,7 @@ class SolarHourDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Horário Solar da Importação")
         self.setModal(True)
-        self.setFixedSize(460, 260)
+        self.setFixedSize(420, 260)
 
         layout = QVBoxLayout(self)
 
@@ -639,7 +644,7 @@ class OverwriteDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Sobrescrever Dados Existentes")
         self.setModal(True)
-        self.setFixedSize(460, 180)
+        self.setFixedSize(420, 180)
 
         self.choice = None
 
@@ -1312,7 +1317,7 @@ class MainAppWindow(QWidget):
                     pira1_value = previous_values[0] + ratio * (next_values[0] - previous_values[0])
                     pira2_value = previous_values[1] + ratio * (next_values[1] - previous_values[1])
 
-                    return pira1_value, pira2_value
+                    return round(pira1_value, 2), round(pira2_value, 2)
 
                 for dt in expected_times:
                     date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
